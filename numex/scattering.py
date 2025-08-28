@@ -21,7 +21,7 @@ circ.edges[3].name = "left"
 
 circ_inner = wp.Circle(0,0,r).Face()
 circ_inner.edges[0].name = "inner"
-# circ_inner.edges[0].maxh = 0.01
+circ_inner.edges[0].maxh = 0.01
 
 circ.edges[0].Identify(circ.edges[2], "top", IdentificationType.PERIODIC)
 
@@ -34,9 +34,13 @@ mesh = Mesh(OCCGeometry(geom, dim=2).GenerateMesh(maxh=0.1))
 mesh.Curve(3)
 Draw(mesh)
 
-order = 5
-S = Periodic(HDivDiv(mesh, order=order-1, dirichlet="inner", plus = True))
+order = 2
+# S = Periodic(HDivDiv(mesh, order=order-1, dirichlet="inner", plus = True))
+# V = Periodic(HCurl(mesh, order=order)) #, type1 = True))
+
+S = Periodic(HDivDiv(mesh, order=order, dirichlet="inner")) #, plus = True))
 V = Periodic(HCurl(mesh, order=order)) #, type1 = True))
+
 
 
 v, dv = V.TnT()
@@ -45,8 +49,9 @@ sigma, dsigma = S.TnT()
 peak = 1 #IfPos(x+R/2-1,0,1)# exp(-damp * ( (x-Mx)*(x-Mx) + (y-My)*(y-My) ))
 
 
-v0 = peak * 0.1 * CF((2,0)) * sin(2*pi*x)
-s0 = peak * 0.1 * CF((-2,4,4,0), dims = (2,2)) * sin(2*pi*x)
+v0 = peak * 0.1 * CF((-2,0)) * sin(2*pi*x)
+s0 = peak * 0.1 * CF((4,0,0,2), dims = (2,2)) * sin(2*pi*x)
+
 
 n = specialcf.normal(2)
 
@@ -86,7 +91,7 @@ gfv = GridFunction(V)
 gfs = GridFunction(S)
 
 gfv.Set(v0)
-# gfs.Set(s0)
+gfs.Set(s0)
 
 for i in range(S.ndof):
     if S.FreeDofs()[i] == 0:
@@ -102,13 +107,13 @@ wS = gfs.vec.CreateVector()
 # Draw (u.components[2], mesh, "uy")
 Draw (gfv, mesh, "gfv")
 Draw (gfs, mesh, "gfs")
-visoptions.scalfunction="gfv:1"
-visoptions.vecfunction="None"
+visoptions.scalfunction="gfs:1"
+# visoptions.vecfunction="None"
 
-nn = CF((x,y)) * 1/(sqrt(x*x + y*y))
-Draw(gfs*nn, mesh, "bnd")
+# nn = CF((x,y)) * 1/(sqrt(x*x + y*y))
+# Draw(gfs*nn, mesh, "bnd")
 
-SetVisualization(min=-0.2, max=0.2, deformation=True)
+# SetVisualization(min=-0.2, max=0.2, deformation=True)
 
 
 mV = BilinearForm(V, symmetric=True)
