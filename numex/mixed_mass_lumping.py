@@ -20,7 +20,12 @@ circ.edges[3].name = "left"
 
 circ_inner = wp.Circle(0,0,r).Face()
 circ_inner.edges[0].name = "inner"
-# circ_inner.edges[0].maxh = 0.01
+
+
+maxh = 0.01
+factor = 5
+
+circ_inner.edges[0].maxh = maxh
 
 circ.edges[0].Identify(circ.edges[2], "top", IdentificationType.PERIODIC)
 
@@ -30,9 +35,8 @@ circ.edges[3].Identify(circ.edges[1], "right", IdentificationType.PERIODIC)
 geom = circ - circ_inner
 
 
-maxh = 0.05
 
-mesh = Mesh(OCCGeometry(geom, dim=2).GenerateMesh(maxh=maxh))
+mesh = Mesh(OCCGeometry(geom, dim=2).GenerateMesh(maxh=factor * maxh))
 mesh.Curve(3)
 Draw(mesh)
 
@@ -60,10 +64,6 @@ fes = fesp**2
 
 Si = Periodic(L2(mesh, order=order))
 S = Si**3
-# gfs_old = GridFunction(S)
-# gfs = GridFunction(S)
-# gfs.Set(s0_vec)
-
 
 u,v = fes.TnT()
 sigma_vec, tau_vec = S.TnT()
@@ -80,8 +80,8 @@ def tr(sigma):
 
 def C(sigma):
     return 2 * mu * sigma + lam * tr(sigma) * Id(2)
+
 def Cinv(sigma):
-    # return sigma
     return 1/(2 * mu) * (sigma - lam/(2*mu + 2*lam) * tr(sigma) * Id(2))
 
 
