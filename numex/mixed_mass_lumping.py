@@ -37,7 +37,7 @@ geom = circ - circ_inner
 
 
 mesh = Mesh(OCCGeometry(geom, dim=2).GenerateMesh(maxh=factor * maxh))
-mesh.Curve(3)
+# mesh.Curve(3)
 Draw(mesh)
 
 
@@ -48,10 +48,17 @@ tend = 1
 # u0 = exp(-100**2*( (x-0.5)**2 + (y-0.5)**2))
 # v0 = 0
 
+# damp = (x**2 + y**2 - r**2)
+# damp = IfPos(x + 1, 0, 1)
+damp = exp(-2*(x + 2)**2)
+
 u0 = 0.1 * CF((-2,0)) * sin(2*pi*x)
 # u0 = exp(-10**2*( (x-0.5)**2 + (y-0.5)**2)) * CF((1,1))
-s0_vec = 0.1 * CF((4,2,0)) * sin(2*pi*x)
-s0 = 0.1 * sin(2*pi*x) * CF((4,0,0,2), dims = (2,2))
+
+
+
+s0_vec = 0.1 * CF((4,2,0)) * sin(2*pi*x) * damp
+s0 = 0.1 * sin(2*pi*x) * CF((4,0,0,2), dims = (2,2)) * damp
 
 ds0 = CF((s0[0,0].Diff(x) + s0[0,1].Diff(y), s0[1,0].Diff(x) + s0[1,1].Diff(y)))
 
@@ -62,7 +69,7 @@ fesp = Periodic(fesi)
 
 fes = fesp**2
 
-Si = Periodic(L2(mesh, order=order))
+Si = Periodic(L2(mesh, order=order+1))
 S = Si**3
 
 u,v = fes.TnT()
@@ -105,13 +112,15 @@ a.Assemble()
 
 minv = m.mat.Inverse(fes.FreeDofs())  
 
-mS = BilinearForm(S) 
-mS += InnerProduct(Cinv(sigma), tau) * dx
+mS = BilinearForm(S, diagonal=True) 
+# mS += InnerProduct(Cinv(sigma), tau) * dx
+mS += InnerProduct(sigma, tau) * dx
 mS.Assemble()
 mSinv = mS.mat.Inverse(S.FreeDofs(), inverse="sparsecholesky")
 
 aS = BilinearForm(trialspace=fes, testspace=S)
-aS += InnerProduct(eps(u), tau) * dx()
+# aS += InnerProduct(eps(u), tau) * dx()
+aS += InnerProduct(C(eps(u)), tau) * dx()
 aS.Assemble()
 
 
@@ -135,15 +144,16 @@ visoptions.vecfunction="None"
 
 w= gfu.vec.CreateVector()
 
+# input()
 with TaskManager(): 
     for n in range(int(tend/dt)):
         gfu.vec.data += dt * minv@a.mat * gfs.vec 
         gfs.vec.data += dt * mSinv@aS.mat * gfu.vec
 
-        
+        # 
         if n % 100 == 0:
             print("t =", n*dt)
-            Redraw()
+            # Redraw()
         # input()
 
 
