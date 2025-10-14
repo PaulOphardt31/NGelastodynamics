@@ -1,0 +1,207 @@
+from ngsolve import *
+# from ngsolve.webgui import Draw
+from time import sleep, time
+from netgen.occ import *
+from ngsolve.internal import visoptions, viewoptions
+from netgen import gui
+R = 5
+r = 0.25
+
+lam = 2
+mu = 1
+
+
+wp = WorkPlane()
+circ = wp.RectangleC(R,R).Face() 
+circ.edges[0].name = "bottom"
+circ.edges[1].name = "right"
+circ.edges[2].name = "top"
+circ.edges[3].name = "left"
+
+# circ_inner = wp.Rectangle(0.1,1).Face()
+circ_inner = wp.Circle(0,0,r).Face()
+circ_inner.edges[0].name = "inner"
+circ_inner.faces.name = "small"
+
+maxh = 0.01
+factor = 5
+
+circ_inner.edges[0].maxh = maxh
+
+circ.edges[0].Identify(circ.edges[2], "top", IdentificationType.PERIODIC)
+
+circ.edges[3].Identify(circ.edges[1], "right", IdentificationType.PERIODIC)
+    
+
+geom = circ - circ_inner
+
+#geom = Glue([geom1, circ_inner])
+
+mesh = Mesh(OCCGeometry(geom, dim=2).GenerateMesh(maxh=factor * maxh, grading=0.9))
+# mesh.Curve(3)
+Draw(mesh)
+
+
+
+
+
+order=2
+
+# u0 = exp(-100**2*( (x-0.5)**2 + (y-0.5)**2))
+# v0 = 0
+
+# damp = (x**2 + y**2 - r**2)
+# damp = IfPos(x + 1, 0, 1)
+damp = exp(-2*(x + 2)**2)
+
+u0 = 0.1 * CF((-2,0)) * sin(2*pi*x) 
+#u0 = exp(-10**2*( (x-0.5)**2 + (y-0.5)**2)) * CF((1,1))
+
+
+
+s0_vec = 0.1 * CF((4,2,0)) * sin(2*pi*x) 
+
+fesi = H1LumpingFESpace(mesh, order=order)
+fesp = Periodic(fesi)
+
+fes = fesp**2
+
+Si = Periodic(L2(mesh, order=order+1))
+S = Si**3
+
+u,v = fes.TnT()
+sigma_vec, tau_vec = S.TnT()
+
+sigma = CF(( sigma_vec[0], sigma_vec[2], sigma_vec[2], sigma_vec[1] ), dims = (2,2))
+tau = CF(( tau_vec[0], tau_vec[2], tau_vec[2], tau_vec[1] ), dims = (2,2))
+
+
+def eps(u):
+    return 0.5 * (grad(u) + grad(u).trans)
+
+def tr(sigma):
+    return sigma[0,0] + sigma[1,1]
+
+def C(sigma):
+    return 2 * mu * sigma + lam * tr(sigma) * Id(2)
+
+def Cinv(sigma):
+    return 1/(2 * mu) * (sigma - lam/(2*mu + 2*lam) * tr(sigma) * Id(2))
+
+
+
+points = [(0,0), (1,0), (0,1), (0.5,0), (0.5,0.5), (0,0.5), (1/3, 1/3)]
+weights = [1/40, 1/40, 1/40, 1/15, 1/15, 1/15, 9/40]
+
+n = specialcf.normal(2)
+
+ir = IntegrationRule(points, weights)
+
+mform = u*v*dx(intrules=fesi.GetIntegrationRules())
+# aform = InnerProduct(grad(u),grad(v))*dx
+# aform = InnerProduct(C(eps(u)), grad(v))*dx
+
+
+m = BilinearForm(mform, diagonal=True).Assemble()
+a = BilinearForm(trialspace=S, testspace=fes)
+a += -InnerProduct(sigma, grad(v)) * dx
+a.Assemble()
+
+minv = m.mat.Inverse(fes.FreeDofs())  
+
+mS = BilinearForm(S, diagonal=True) 
+# mS += InnerProduct(Cinv(sigma), tau) * dx
+mS += InnerProduct(sigma, tau) * dx
+mS.Assemble()
+mSinv = mS.mat.Inverse(S.FreeDofs(), inverse="sparsecholesky")
+
+aS = BilinearForm(trialspace=fes, testspace=S)
+# aS += InnerProduct(eps(u), tau) * dx()
+aS += InnerProduct(C(eps(u)), tau) * dx()
+aS.Assemble()
+
+
+gfu = GridFunction(fes)
+gfu.Set(u0)
+
+gfs = GridFunction(S)
+gfs.Set(s0_vec)
+
+Draw(gfu, mesh, name="u")
+Draw(gfs, mesh, name="sigma")
+
+
+
+visoptions.scalfunction="u:1"
+visoptions.scalfunction="sigma:1"
+
+visoptions.mmaxval=0.4
+visoptions.mminval=-0.4
+visoptions.autoscale=False
+
+
+# candidates = [n for n in dir(visoptions) if not n.startswith("_")]
+# opts = {}
+# for name in candidates:
+#     try:
+#         opts[name] = getattr(visoptions, name)
+#     except Exception:
+#         pass
+
+# for k, v in sorted(opts.items()):
+#     print(f"{k} = {v}")
+
+visoptions.vecfunction="None"
+#print(visoptions)
+
+# import scipy.sparse as sp
+# A = sp.csr_matrix((mSinv@aS).mat.CSR())
+# plt.rcParams['figure.figsize'] = (4,4)
+# plt.spy(A)
+# plt.show()
+# input()
+
+# A = sp.csr_matrix(APs.mat.CSR())
+# plt.rcParams['figure.figsize'] = (4,4)
+# plt.spy(A)
+# plt.show()
+# input()
+
+uold = gfu.vec.CreateVector()
+sold = gfs.vec.CreateVector()
+N = 10
+
+localdofs = S.GetDofs(mesh.Materials("small"))
+print ("local dofs: ", localdofs.NumSet(),"/",len(localdofs))
+Ps = Projector(localdofs, True)   # projection to small
+Pl = Projector(localdofs, False)  # projection to large
+
+# APs = mSinv@aS.mat@Ps
+# APl = mSinv@aS.mat@Pl
+
+APs = minv@a.mat@Ps
+APl = minv@a.mat@Pl
+
+dt = maxh / (5*order)
+tend = 1
+
+with TaskManager(): 
+    for n in range(int(tend/dt)):
+        uold.data = gfu.vec #+ dt/N * minv@a.mat * gfs.vec
+        sold = gfs.vec
+        for m in range(N):
+            gfu.vec.data += dt/N * (APs * gfs.vec + APl * sold) #(APl * uold + APs * uold)
+            gfs.vec.data += dt/N * mSinv@aS.mat * gfu.vec #(APl * uold + APs * uold)
+
+        # 
+        if n % 100 == 0:
+            print("t =", n*dt)
+            Redraw()
+            input()
+
+
+
+
+Redraw()
+
+input()
